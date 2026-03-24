@@ -39,7 +39,7 @@ _LIB_NAME = {"Darwin": "libweya_nc.dylib", "Windows": "weya_nc.dll"}.get(
     platform.system(), "libweya_nc.so"
 )
 LIB_PATH = _HUSH_DIR / "lib" / _LIB_NAME
-MODEL_PATH = _HUSH_DIR / "models" / "advanced_dfnet16k_model_best_onnx.tar.gz"
+MODEL_PATH = _HUSH_DIR.parent / "models" / "advanced_dfnet16k_model_best_onnx.tar.gz"
 
 
 def _setup_lib(lib_path: Path) -> ctypes.CDLL:

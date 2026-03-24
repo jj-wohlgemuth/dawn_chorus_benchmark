@@ -7,5 +7,6 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "aic-sdk>=2.1.1",
     "datasets>=4.8.4",
+    "dotenv>=0.9.9",
     "numpy>=2.0.2",
 ]

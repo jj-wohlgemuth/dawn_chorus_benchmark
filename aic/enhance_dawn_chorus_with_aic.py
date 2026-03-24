@@ -11,12 +11,9 @@ from pathlib import Path
 
 import numpy as np
 import aic_sdk as aic
-<<<<<<< HEAD
 from dotenv import load_dotenv
 
 load_dotenv()
-=======
->>>>>>> a6cc3d9 (add ai-coustics benchmark with isolated env)
 
 # torchcodec (pulled in by datasets) prints FFmpeg load errors to both C-level
 # stderr (fd 2) and Python's sys.stderr; silence both for the import.
@@ -37,7 +34,7 @@ SPLIT = "eval"
 
 # Make one copy of this script per model and change these constants.
 MODEL_ID = "quail-vf-2.0-l-16khz"
-OUTPUT_DIR = Path("quail_vf_2_0_l_16khz_el_80_dawn_chorus_en/audio")
+OUTPUT_DIR = Path("quail_vf_2_0_l_16khz_el_80/audio")
 MODELS_DIR = Path("models")
 
 # Optional tuning

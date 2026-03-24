@@ -165,8 +165,13 @@ def main() -> None:
             lib.weya_nc_reset(session)
 
         assert session is not None and frame_len is not None
+        out_path = OUTPUT_DIR / file_id
+        if out_path.exists():
+            print(f"  [{i + 1}/{len(dataset)}] Skipping {file_id} (already exists)")
+            continue
+
         out_i16 = _denoise(lib, session, audio_i16, frame_len)
-        _write_wav(OUTPUT_DIR / file_id, out_i16, sr)
+        _write_wav(out_path, out_i16, sr)
         print(f"  [{i + 1}/{len(dataset)}] {file_id}")
 
     if session is not None:

@@ -182,3 +182,4 @@ cython_debug/
 /advanced_dfnet16k_model_best_onnx
 /.vscode
 .DS_Store
+*.aicmodel

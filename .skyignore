@@ -1,0 +1,7 @@
+**/*.wav
+.venv/
+__pycache__/
+.git/
+.DS_Store
+.vscode/
+advanced_dfnet16k_model_best_onnx/

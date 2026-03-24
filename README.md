@@ -14,11 +14,13 @@ Enhance with AIC SDK
 
 
 Generate transcriptions for Hush
-3. `uv run python generate_transcripts.py advanced_dfnet16k_model_best_onnx`
+3. `uv run python generate_transcripts.py advanced_dfnet16k_model_best_onnx [--model MODEL]`
 
 
 Generate transcriptions for AIC-SDK
-4. `uv run python generate_transcripts.py quail_vf_2_0_l_16khz_el_80`
+4. `uv run python generate_transcripts.py quail_vf_2_0_l_16khz_el_80 [--model MODEL]`
+
+`MODEL` choices: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `distil-small.en`, `medium`, `medium.en`, `distil-medium.en`, `large-v1`, `large-v2`, `large-v3`, `large`, `distil-large-v2`, `distil-large-v3`, `large-v3-turbo`, `turbo` (default: `tiny.en`)
 
 
 Run and plot evaluation

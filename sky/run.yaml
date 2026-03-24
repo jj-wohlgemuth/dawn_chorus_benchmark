@@ -1,6 +1,5 @@
 resources:
   cloud: aws
-  region: us-east-1
   accelerators: A10G:1
   instance_type: g5.xlarge
 
@@ -13,11 +12,15 @@ setup: |
   curl -LsSf https://astral.sh/uv/install.sh | sh
   source $HOME/.local/bin/env
   uv sync
+  uv --project hush sync
+  uv --project aic sync
 
+# uv --project aic run python aic/enhance_dawn_chorus_with_aic.py
+# uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py
 run: |
   source $HOME/.local/bin/env
-  uv run python hush/aic/enhance_dawn_chorus_with_aic.py
-  uv run python hush/enhance_dawn_chorus_with_hush_onnx.py
-  uv run python generate_transcripts.py advanced_dfnet16k_model_best_onnx
-  uv run python generate_transcripts.py quail_vf_2_0_l_16khz_el_80_dawn_chorus_en
-  uv run python evaluate_wer.py
+  uv run python extract_mix_audio.py
+  uv run python generate_transcripts.py mix --model distil-medium.en
+  uv run python generate_transcripts.py advanced_dfnet16k_model_best_onnx --model distil-medium.en
+  uv run python generate_transcripts.py quail_vf_2_0_l_16khz_el_80 --model distil-medium.en
+  uv run python evaluate_wer.py --model distil-medium.en

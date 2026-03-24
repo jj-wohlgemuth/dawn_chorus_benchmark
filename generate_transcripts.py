@@ -3,15 +3,23 @@ from pathlib import Path
 
 from faster_whisper import WhisperModel
 
+MODELS = [
+    "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+    "distil-small.en", "medium", "medium.en", "distil-medium.en",
+    "large-v1", "large-v2", "large-v3", "large", "distil-large-v2",
+    "distil-large-v3", "large-v3-turbo", "turbo",
+]
+
 parser = argparse.ArgumentParser()
 parser.add_argument("base_dir", type=Path)
+parser.add_argument("--model", default="tiny.en", choices=MODELS)
 args = parser.parse_args()
 
 audio_dir = args.base_dir / "audio"
 transcript_dir = args.base_dir / "transcripts"
 transcript_dir.mkdir(parents=True, exist_ok=True)
 
-model = WhisperModel("tiny.en", device="auto", compute_type="auto")
+model = WhisperModel(args.model, device="auto", compute_type="auto")
 print("Loaded Whisper model")
 
 wav_files = sorted(audio_dir.glob("*.wav"))

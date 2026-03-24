@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 .vscode/
 advanced_dfnet16k_model_best_onnx/
+mix/
+quail_vf_2_0_l_16khz_el_80/

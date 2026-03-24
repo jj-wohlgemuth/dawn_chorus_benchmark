@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import jiwer
@@ -7,15 +8,20 @@ from datasets import Audio, load_dataset
 from matplotlib.ticker import FuncFormatter
 from whisper_normalizer.english import EnglishTextNormalizer
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--model", default="tiny.en", help="Whisper model used for transcription")
+args = parser.parse_args()
+
 # --- Experiments: name -> base directory ---
 EXPERIMENTS = {
+    "Mix": Path("mix"),
     "Hush": Path("advanced_dfnet16k_model_best_onnx"),
     "AIC": Path("quail_vf_2_0_l_16khz_el_80"),
 }
 
 # --- Brand Styling (matching plot_aesthetic) ---
 BRAND_COLORS = {"off_black": "#1A1A1A", "off_white": "#F2F2F0"}
-EXPERIMENT_COLORS = {"Hush": "#4E9AF1", "AIC": "#2F6DF6"}
+EXPERIMENT_COLORS = {"Mix": "#929292", "Hush": "#4E9AF1", "AIC": "#2F6DF6"}
 HATCH_PATTERNS = {"Deletion": "//", "Insertion": "", "Substitution": "\\\\"}
 
 # --- Load ground truth ---
@@ -100,7 +106,7 @@ for i, (x, name) in enumerate(zip(x_positions, experiment_names)):
 for spine in ax.spines.values():
     spine.set_visible(False)
 ax.yaxis.set_major_formatter(FuncFormatter(lambda val, _: f"{val:.0f}%"))
-ax.set_ylabel("Word Error Rate (%)", fontsize=14, color=fg, labelpad=12)
+ax.set_ylabel("Corpus-level Word Error Rate (%)", fontsize=14, color=fg, labelpad=12)
 ax.tick_params(colors=fg)
 ax.tick_params(axis="x", length=0, pad=12)
 ax.set_xticks(x_positions)
@@ -108,7 +114,7 @@ ax.set_xticklabels(experiment_names, fontsize=14, color=fg, fontweight="bold")
 plt.yticks(color=fg, fontsize=13)
 ax.grid(axis="y", linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
 ax.axhline(y=0, linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
-ax.set_title("Dawn Chorus — WER by Enhancement", fontsize=20, color=fg, pad=16)
+ax.set_title(f"Dawn Chorus — WER by Enhancement ({args.model})", fontsize=20, color=fg, pad=16)
 
 # Legend
 legend_handles = [

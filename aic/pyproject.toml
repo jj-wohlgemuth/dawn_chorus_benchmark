@@ -1,0 +1,11 @@
+[project]
+name = "dawn-chorus-benchmark-aic"
+version = "0.1.0"
+description = "ai-coustics SDK benchmark scripts for dawn_chorus_en"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "aic-sdk>=2.1.1",
+    "datasets>=4.8.4",
+    "numpy>=2.0.2",
+]

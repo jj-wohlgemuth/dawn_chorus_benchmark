@@ -11,9 +11,12 @@ from pathlib import Path
 
 import numpy as np
 import aic_sdk as aic
+<<<<<<< HEAD
 from dotenv import load_dotenv
 
 load_dotenv()
+=======
+>>>>>>> a6cc3d9 (add ai-coustics benchmark with isolated env)
 
 # torchcodec (pulled in by datasets) prints FFmpeg load errors to both C-level
 # stderr (fd 2) and Python's sys.stderr; silence both for the import.

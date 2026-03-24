@@ -9,11 +9,4 @@ dependencies = [
     "torch>=2.11.0",
     "datasets>=4.8.3",
     "soundfile>=0.13.1",
-    "faster-whisper>=1.1.0",
-    "aic-sdk>=2.1.1",
-    "whisper-normalizer>=0.1.12",
-    "jiwer>=4.0.0",
-    "matplotlib>=3.10.8",
-    "pandas>=2.3.3",
-    "python-dotenv>=1.2.2",
 ]

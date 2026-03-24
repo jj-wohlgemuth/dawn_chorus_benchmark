@@ -10,7 +10,7 @@ from whisper_normalizer.english import EnglishTextNormalizer
 # --- Experiments: name -> base directory ---
 EXPERIMENTS = {
     "Hush": Path("advanced_dfnet16k_model_best_onnx"),
-    "AIC": Path("quail_vf_2_0_l_16khz_el_80_dawn_chorus_en"),
+    "AIC": Path("quail_vf_2_0_l_16khz_el_80"),
 }
 
 # --- Brand Styling (matching plot_aesthetic) ---

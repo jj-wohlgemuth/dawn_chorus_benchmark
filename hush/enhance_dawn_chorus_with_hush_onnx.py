@@ -31,7 +31,6 @@ with open(os.devnull, "w") as _devnull:
 
 REPO_ID = "ai-coustics/dawn_chorus_en"
 SPLIT = "eval"
-OUTPUT_DIR = Path("advanced_dfnet16k_model_best_onnx")
 ATTEN_LIM_DB = 100.0
 
 _HUSH_DIR = Path(__file__).resolve().parent
@@ -40,7 +39,7 @@ _LIB_NAME = {"Darwin": "libweya_nc.dylib", "Windows": "weya_nc.dll"}.get(
 )
 LIB_PATH = _HUSH_DIR / "lib" / _LIB_NAME
 MODEL_PATH = _HUSH_DIR.parent / "models" / "advanced_dfnet16k_model_best_onnx.tar.gz"
-
+OUTPUT_DIR = _HUSH_DIR.parent / "advanced_dfnet16k_model_best_onnx/audio"
 
 def _setup_lib(lib_path: Path) -> ctypes.CDLL:
     lib = ctypes.CDLL(str(lib_path.resolve()))

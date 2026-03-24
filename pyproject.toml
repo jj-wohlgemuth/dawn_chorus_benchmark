@@ -1,0 +1,13 @@
+[project]
+name = "dawn-chorus-benchmark"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=4.8.4",
+    "torch>=2.11.0",
+    "datasets>=4.8.3",
+    "deepfilternet>=0.5.6",
+    "soundfile>=0.13.1",
+]

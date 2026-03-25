@@ -179,5 +179,37 @@ def main() -> None:
     print("Done.")
 
 
+def enhance_file(input_path: Path, output_path: Path, atten_lim_db: float = ATTEN_LIM_DB) -> None:
+    """Enhance a single WAV file — used by tests and CLI."""
+    lib = _setup_lib(LIB_PATH)
+    model = lib.weya_nc_model_load_from_path(str(MODEL_PATH.resolve()).encode())
+    if not model:
+        raise RuntimeError(f"Could not load model from {MODEL_PATH}")
+
+    audio_i16, sr = _load_wav_bytes(input_path.read_bytes())
+    session = lib.weya_nc_session_create(model, sr, ctypes.c_float(atten_lim_db))
+    if not session:
+        raise RuntimeError(f"Could not create session for sr={sr}")
+    frame_len = int(lib.weya_nc_get_frame_length(session))
+
+    out_i16 = _denoise(lib, session, audio_i16, frame_len)
+
+    lib.weya_nc_session_free(session)
+    lib.weya_nc_model_free(model)
+
+    _write_wav(output_path, out_i16, sr)
+
+
 if __name__ == "__main__":
-    main()
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser()
+    _parser.add_argument("--input", type=Path, help="Single WAV file to enhance")
+    _parser.add_argument("--output", type=Path, help="Output WAV path")
+    _parser.add_argument("--atten-lim-db", type=float, default=ATTEN_LIM_DB,
+                         help=f"Attenuation limit in dB (default: {ATTEN_LIM_DB})")
+    _args, _ = _parser.parse_known_args()
+
+    if _args.input and _args.output:
+        enhance_file(_args.input, _args.output, atten_lim_db=_args.atten_lim_db)
+    else:
+        main()

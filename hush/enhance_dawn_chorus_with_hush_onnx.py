@@ -39,7 +39,14 @@ _LIB_NAME = {"Darwin": "libweya_nc.dylib", "Windows": "weya_nc.dll"}.get(
 )
 LIB_PATH = _HUSH_DIR / "lib" / _LIB_NAME
 MODEL_PATH = _HUSH_DIR.parent / "models" / "advanced_dfnet16k_model_best_onnx.tar.gz"
-OUTPUT_DIR = _HUSH_DIR.parent / "advanced_dfnet16k_model_best_onnx/audio"
+
+
+def _output_dir(atten_lim_db: float) -> Path:
+    model_slug = MODEL_PATH.name.split(".")[0]
+    return _HUSH_DIR.parent / f"hush_{model_slug}_atten{int(atten_lim_db)}" / "audio"
+
+
+OUTPUT_DIR = _output_dir(ATTEN_LIM_DB)
 
 def _setup_lib(lib_path: Path) -> ctypes.CDLL:
     lib = ctypes.CDLL(str(lib_path.resolve()))
@@ -119,7 +126,7 @@ def _denoise(
     return out_i16
 
 
-def main() -> None:
+def main(output_dir: Path = OUTPUT_DIR, atten_lim_db: float = ATTEN_LIM_DB) -> None:
     print(f"Loading dataset: {REPO_ID} ({SPLIT})...")
     dataset = load_dataset(REPO_ID, split=SPLIT)
     for col, feat in dataset.features.items():
@@ -136,7 +143,8 @@ def main() -> None:
     current_sr = None
     frame_len = None
 
-    print(f"Processing {len(dataset)} file(s)  →  {OUTPUT_DIR}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Processing {len(dataset)} file(s)  →  {output_dir}")
 
     for i, row in enumerate(dataset):
         mix_data = row.get("mix")
@@ -154,7 +162,7 @@ def main() -> None:
             if session is not None:
                 lib.weya_nc_session_free(session)
             session = lib.weya_nc_session_create(
-                model, sr, ctypes.c_float(ATTEN_LIM_DB)
+                model, sr, ctypes.c_float(atten_lim_db)
             )
             if not session:
                 raise RuntimeError(f"Could not create session for sr={sr}")
@@ -164,7 +172,7 @@ def main() -> None:
             lib.weya_nc_reset(session)
 
         assert session is not None and frame_len is not None
-        out_path = OUTPUT_DIR / file_id
+        out_path = output_dir / file_id
         if out_path.exists():
             print(f"  [{i + 1}/{len(dataset)}] Skipping {file_id} (already exists)")
             continue
@@ -212,4 +220,4 @@ if __name__ == "__main__":
     if _args.input and _args.output:
         enhance_file(_args.input, _args.output, atten_lim_db=_args.atten_lim_db)
     else:
-        main()
+        main(output_dir=_output_dir(_args.atten_lim_db), atten_lim_db=_args.atten_lim_db)

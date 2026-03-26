@@ -32,15 +32,19 @@ with open(os.devnull, "w") as _devnull:
 REPO_ID = "ai-coustics/dawn_chorus_en"
 SPLIT = "eval"
 
-# Make one copy of this script per model and change these constants.
-MODEL_ID = "quail-vf-2.0-l-16khz"
-OUTPUT_DIR = Path("quail_vf_2_0_l_16khz_el_80/audio")
 MODELS_DIR = Path("models")
-
-# Optional tuning
-ENHANCEMENT_LEVEL = 0.8  # range 0.0 .. 1.0
-BYPASS = 0.0             # 0.0 = enhance, 1.0 = passthrough with latency
 LICENSE_ENV = "AIC_SDK_LICENSE"
+
+# Defaults (overridden by CLI args when run as __main__)
+_DEFAULT_MODEL_ID = "quail-vf-2.0-l-16khz"
+_DEFAULT_ENHANCEMENT_LEVEL = 0.8
+_DEFAULT_BYPASS = 0.0
+
+
+def _output_dir(model_id: str, enhancement_level: float) -> Path:
+    slug = model_id.replace("-", "_").replace(".", "_")
+    el_pct = int(round(enhancement_level * 100))
+    return Path(f"aic_{slug}_el{el_pct}") / "audio"
 
 
 def _load_wav_bytes(data: bytes) -> tuple[np.ndarray, int]:
@@ -86,7 +90,9 @@ def _to_int16_mono(audio_f32_chxT: np.ndarray) -> np.ndarray:
     return (audio * 32768.0).clip(-32768, 32767).astype(np.int16)
 
 
-def _create_processor(model: aic.Model, license_key: str, sr: int) -> tuple[aic.Processor, int]:
+def _create_processor(model: aic.Model, license_key: str, sr: int,
+                       enhancement_level: float = _DEFAULT_ENHANCEMENT_LEVEL,
+                       bypass: float = _DEFAULT_BYPASS) -> tuple[aic.Processor, int]:
     config = aic.ProcessorConfig.optimal(
         model,
         sample_rate=sr,
@@ -96,8 +102,8 @@ def _create_processor(model: aic.Model, license_key: str, sr: int) -> tuple[aic.
     processor = aic.Processor(model, license_key, config)
 
     proc_ctx = processor.get_processor_context()
-    proc_ctx.set_parameter(aic.ProcessorParameter.EnhancementLevel, ENHANCEMENT_LEVEL)
-    proc_ctx.set_parameter(aic.ProcessorParameter.Bypass, BYPASS)
+    proc_ctx.set_parameter(aic.ProcessorParameter.EnhancementLevel, enhancement_level)
+    proc_ctx.set_parameter(aic.ProcessorParameter.Bypass, bypass)
 
     frame_len = config.num_frames
     return processor, frame_len
@@ -149,7 +155,10 @@ def _enhance_offline(
     return _to_int16_mono(enhanced_aligned)
 
 
-def main() -> None:
+def main(model_id: str = _DEFAULT_MODEL_ID,
+         enhancement_level: float = _DEFAULT_ENHANCEMENT_LEVEL,
+         bypass: float = _DEFAULT_BYPASS) -> None:
+    output_dir = _output_dir(model_id, enhancement_level)
     license_key = os.environ.get(LICENSE_ENV)
     if not license_key:
         raise RuntimeError(
@@ -159,9 +168,9 @@ def main() -> None:
     print(f"SDK version: {aic.get_sdk_version()}")
     print(f"Compatible model version: {aic.get_compatible_model_version()}")
 
-    print(f"Loading model: {MODEL_ID}")
-    model_path = aic.Model.download(MODEL_ID, MODELS_DIR)
-    model = aic.Model.from_file(model_path)
+    print(f"Loading model: {model_id}")
+    model_path = aic.Model.download(model_id, MODELS_DIR)
+    aic_model = aic.Model.from_file(model_path)
 
     print(f"Loading dataset: {REPO_ID} ({SPLIT})...")
     dataset = load_dataset(REPO_ID, split=SPLIT)
@@ -172,7 +181,8 @@ def main() -> None:
 
     processors_by_sr: dict[int, tuple[aic.Processor, int]] = {}
 
-    print(f"Processing {len(dataset)} file(s)  ->  {OUTPUT_DIR}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Processing {len(dataset)} file(s)  ->  {output_dir}")
 
     for i, row in enumerate(dataset):
         mix_data = row.get("mix")
@@ -187,18 +197,26 @@ def main() -> None:
         audio_i16, sr = _load_wav_bytes(mix_data["bytes"])
 
         if sr not in processors_by_sr:
-            processor, frame_len = _create_processor(model, license_key, sr)
+            processor, frame_len = _create_processor(aic_model, license_key, sr,
+                                                      enhancement_level=enhancement_level,
+                                                      bypass=bypass)
             processors_by_sr[sr] = (processor, frame_len)
             print(f"  initialized processor for sr={sr}, frame_len={frame_len}")
 
         processor, frame_len = processors_by_sr[sr]
         out_i16 = _enhance_offline(processor, audio_i16, frame_len)
 
-        _write_wav(OUTPUT_DIR / file_id, out_i16, sr)
+        _write_wav(output_dir / file_id, out_i16, sr)
         print(f"  [{i + 1}/{len(dataset)}] {file_id}")
 
     print("Done.")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser()
+    _parser.add_argument("--model-id", default=_DEFAULT_MODEL_ID)
+    _parser.add_argument("--enhancement-level", type=float, default=_DEFAULT_ENHANCEMENT_LEVEL)
+    _parser.add_argument("--bypass", type=float, default=_DEFAULT_BYPASS)
+    _args = _parser.parse_args()
+    main(model_id=_args.model_id, enhancement_level=_args.enhancement_level, bypass=_args.bypass)

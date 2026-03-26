@@ -15,12 +15,33 @@ setup: |
   uv --project hush sync
   uv --project aic sync
 
-# uv --project aic run python aic/enhance_dawn_chorus_with_aic.py
-# uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py
 run: |
   source $HOME/.local/bin/env
+
+  # --- Parameters ---
+  WHISPER_MODEL="distil-medium.en"
+  HUSH_MODEL="advanced_dfnet16k_model_best_onnx"   # ONNX model stem
+  HUSH_ATTEN=35                                     # atten_lim_db
+  AIC_MODEL="quail-vf-2.0-l-16khz"                 # AIC model ID
+  AIC_EL=0.8                                        # enhancement level (0.0–1.0)
+
+  # --- Derived output dirs (must match _output_dir() in each script) ---
+  AIC_SLUG=$(echo "$AIC_MODEL" | tr '-' '_' | tr '.' '_')
+  AIC_EL_PCT=$(python3 -c "print(int(${AIC_EL}*100))")
+  HUSH_DIR="hush_${HUSH_MODEL}_atten${HUSH_ATTEN}"
+  AIC_DIR="aic_${AIC_SLUG}_el${AIC_EL_PCT}"
+
   uv run python extract_mix_audio.py
-  uv run python generate_transcripts.py mix --model distil-medium.en
-  uv run python generate_transcripts.py advanced_dfnet16k_model_best_onnx --model distil-medium.en
-  uv run python generate_transcripts.py quail_vf_2_0_l_16khz_el_80 --model distil-medium.en
-  uv run python evaluate_wer.py --model distil-medium.en
+  uv --project aic run python aic/enhance_dawn_chorus_with_aic.py \
+    --model-id "$AIC_MODEL" --enhancement-level "$AIC_EL"
+  uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py \
+    --atten-lim-db "$HUSH_ATTEN"
+
+  uv run python generate_transcripts.py mix --model "$WHISPER_MODEL"
+  uv run python generate_transcripts.py "$HUSH_DIR" --model "$WHISPER_MODEL"
+  uv run python generate_transcripts.py "$AIC_DIR" --model "$WHISPER_MODEL"
+
+  uv run python evaluate_wer.py \
+    --model "$WHISPER_MODEL" \
+    --hush-dir "$HUSH_DIR" \
+    --aic-dir "$AIC_DIR"

@@ -9,25 +9,60 @@ from matplotlib.ticker import FuncFormatter
 from whisper_normalizer.english import EnglishTextNormalizer
 
 parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--model", default="tiny.en", help="Whisper model used for transcription"
-)
+parser.add_argument("--model", default="tiny.en", help="Whisper model used for transcription")
+parser.add_argument("--hush-dir", type=Path, default=None,
+                    help="Hush output base dir (default: auto-detected by hush_* glob)")
+parser.add_argument("--aic-dir", type=Path, default=None,
+                    help="AIC output base dir (default: auto-detected by aic_* glob)")
 args = parser.parse_args()
 
-# --- Experiments: name -> base directory ---
-EXPERIMENTS = {
-    "Mix": Path("mix"),
-    "Hush": Path("advanced_dfnet16k_model_best_onnx"),
-    "Quail Voice Focus 2.0": Path("quail_vf_2_0_l_16khz_el_80"),
-}
+
+def _find_dir(pattern: str, explicit: Path | None) -> Path | None:
+    if explicit:
+        return explicit
+    matches = sorted(Path(".").glob(pattern))
+    return matches[-1] if matches else None
+
+
+def _hush_label(d: Path) -> str:
+    """'advanced_dfnet16k_model_best_onnx · atten=35 dB' from dir name."""
+    name = d.name  # e.g. hush_advanced_dfnet16k_model_best_onnx_atten35
+    if "_atten" in name:
+        model_part, atten_part = name.split("_atten", 1)
+        model_part = model_part.removeprefix("hush_")
+        return f"Hush\n{model_part}\natten={atten_part} dB"
+    return f"Hush\n{name}"
+
+
+def _aic_label(d: Path) -> str:
+    """'quail-vf-2.0-l-16khz · EL=80%' from dir name."""
+    name = d.name  # e.g. aic_quail_vf_2_0_l_16khz_el80
+    if "_el" in name:
+        model_part, el_part = name.rsplit("_el", 1)
+        model_part = model_part.removeprefix("aic_").replace("_", "-")
+        return f"AIC\n{model_part}\nEL={el_part}%"
+    return f"AIC\n{name}"
+
+
+hush_dir = _find_dir("hush_*/", args.hush_dir)
+aic_dir = _find_dir("aic_*/", args.aic_dir)
+
+# --- Experiments: label -> base directory ---
+EXPERIMENTS: dict[str, Path] = {"Mix": Path("mix")}
+EXPERIMENT_COLORS: dict[str, str] = {"Mix": "#929292"}
+
+if hush_dir:
+    label = _hush_label(hush_dir)
+    EXPERIMENTS[label] = hush_dir
+    EXPERIMENT_COLORS[label] = "#4E9AF1"
+
+if aic_dir:
+    label = _aic_label(aic_dir)
+    EXPERIMENTS[label] = aic_dir
+    EXPERIMENT_COLORS[label] = "#2F6DF6"
 
 # --- Brand Styling (matching plot_aesthetic) ---
 BRAND_COLORS = {"off_black": "#1A1A1A", "off_white": "#F2F2F0"}
-EXPERIMENT_COLORS = {
-    "Mix": "#929292",
-    "Hush": "#4E9AF1",
-    "Quail Voice Focus 2.0": "#2F6DF6",
-}
 HATCH_PATTERNS = {"Deletion": "//", "Insertion": "", "Substitution": "\\\\"}
 
 # --- Load ground truth ---
@@ -56,6 +91,9 @@ for name, base_dir in EXPERIMENTS.items():
         hyps.append(hyp)
 
     print(f"{name}: computing WER over {len(refs)} files...")
+    if not refs:
+        print(f"  [WARN] No transcripts found in {transcript_dir} — skipping.")
+        continue
     measures = jiwer.process_words(refs, hyps)
     n = measures.hits + measures.substitutions + measures.deletions
     results[name] = {
@@ -137,7 +175,7 @@ ax.set_ylabel("Corpus-level Word Error Rate (%)", fontsize=14, color=fg, labelpa
 ax.tick_params(colors=fg)
 ax.tick_params(axis="x", length=0, pad=12)
 ax.set_xticks(x_positions)
-ax.set_xticklabels(experiment_names, fontsize=14, color=fg, fontweight="bold")
+ax.set_xticklabels(experiment_names, fontsize=11, color=fg, fontweight="bold")
 plt.yticks(color=fg, fontsize=13)
 ax.grid(axis="y", linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
 ax.axhline(y=0, linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)

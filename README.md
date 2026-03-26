@@ -58,8 +58,8 @@ uv run python extract_mix_audio.py
 
 ```bash
 uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py \
-  --atten-lim-db 35
-# → hush_advanced_dfnet16k_model_best_onnx_atten35/audio/*.wav
+  --atten-lim-db 100
+# → hush_advanced_dfnet16k_model_best_onnx_atten100/audio/*.wav
 ```
 
 ### 4. Enhance with AIC SDK
@@ -76,7 +76,7 @@ uv --project aic run python aic/enhance_dawn_chorus_with_aic.py \
 
 ```bash
 uv run python generate_transcripts.py mix --model distil-medium.en
-uv run python generate_transcripts.py hush_advanced_dfnet16k_model_best_onnx_atten35 --model distil-medium.en
+uv run python generate_transcripts.py hush_advanced_dfnet16k_model_best_onnx_atten100 --model distil-medium.en
 uv run python generate_transcripts.py aic_quail_vf_2_0_l_16khz_el80 --model distil-medium.en
 ```
 
@@ -123,7 +123,7 @@ Edit the variables at the top of the `run:` block in `sky/run.yaml`:
 ```yaml
 WHISPER_MODEL="distil-medium.en"
 HUSH_MODEL="advanced_dfnet16k_model_best_onnx"
-HUSH_ATTEN=35
+HUSH_ATTEN=100
 AIC_MODEL="quail-vf-2.0-l-16khz"
 AIC_EL=0.8
 ```

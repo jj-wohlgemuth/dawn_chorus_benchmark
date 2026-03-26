@@ -9,11 +9,21 @@ from matplotlib.ticker import FuncFormatter
 from whisper_normalizer.english import EnglishTextNormalizer
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", default="tiny.en", help="Whisper model used for transcription")
-parser.add_argument("--hush-dir", type=Path, default=None,
-                    help="Hush output base dir (default: auto-detected by hush_* glob)")
-parser.add_argument("--aic-dir", type=Path, default=None,
-                    help="AIC output base dir (default: auto-detected by aic_* glob)")
+parser.add_argument(
+    "--model", default="tiny.en", help="Whisper model used for transcription"
+)
+parser.add_argument(
+    "--hush-dir",
+    type=Path,
+    default=None,
+    help="Hush output base dir (default: auto-detected by hush_* glob)",
+)
+parser.add_argument(
+    "--aic-dir",
+    type=Path,
+    default=None,
+    help="AIC output base dir (default: auto-detected by aic_* glob)",
+)
 args = parser.parse_args()
 
 
@@ -25,8 +35,8 @@ def _find_dir(pattern: str, explicit: Path | None) -> Path | None:
 
 
 def _hush_label(d: Path) -> str:
-    """'advanced_dfnet16k_model_best_onnx · atten=35 dB' from dir name."""
-    name = d.name  # e.g. hush_advanced_dfnet16k_model_best_onnx_atten35
+    """'advanced_dfnet16k_model_best_onnx · atten=100 dB' from dir name."""
+    name = d.name  # e.g. hush_advanced_dfnet16k_model_best_onnx_atten100
     if "_atten" in name:
         model_part, atten_part = name.split("_atten", 1)
         model_part = model_part.removeprefix("hush_")

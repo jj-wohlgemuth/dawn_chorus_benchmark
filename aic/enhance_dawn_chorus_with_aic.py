@@ -108,7 +108,7 @@ async def _process_one(
         chunk = np.zeros((1, frame_len), dtype=np.float32)
         chunk[:, : end - start] = padded[:, start:end]
         processed = await processor.process_async(chunk)
-        output[:, start : start + processed.shape[1]] = processed
+        output[:, start : end] = processed[:, : end - start]
 
     # Remove latency padding from front, trim to original length
     result = output[:, latency : latency + audio_f32.shape[1]]

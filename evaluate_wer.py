@@ -24,6 +24,17 @@ parser.add_argument(
     default=None,
     help="AIC output base dir (default: auto-detected by aic_* glob)",
 )
+parser.add_argument(
+    "--transcripts-subdir",
+    default="transcripts",
+    help="Subdirectory within each experiment dir containing transcript .txt files "
+    "(default: transcripts; use transcripts_kyutai for Kyutai output)",
+)
+parser.add_argument(
+    "--output",
+    default="wer_comparison.png",
+    help="Output PNG filename (default: wer_comparison.png)",
+)
 args = parser.parse_args()
 
 
@@ -89,7 +100,7 @@ print(f"Loaded {len(ground_truth)} ground truth entries.")
 # --- Compute WER per experiment ---
 results = {}
 for name, base_dir in EXPERIMENTS.items():
-    transcript_dir = base_dir / "transcripts"
+    transcript_dir = base_dir / args.transcripts_subdir
     refs, hyps = [], []
     for txt_file in sorted(transcript_dir.glob("*.txt")):
         file_id = txt_file.stem
@@ -190,7 +201,10 @@ plt.yticks(color=fg, fontsize=13)
 ax.grid(axis="y", linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
 ax.axhline(y=0, linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
 ax.set_title(
-    f"Dawn Chorus — WER by Enhancement ({args.model})", fontsize=20, color=fg, pad=16
+    f"Dawn Chorus — WER by Enhancement ({args.model}, {args.transcripts_subdir})",
+    fontsize=20,
+    color=fg,
+    pad=16,
 )
 
 # Legend
@@ -215,6 +229,6 @@ for text in leg.get_texts():
 
 plt.tight_layout()
 plt.subplots_adjust(bottom=0.14)
-out_path = Path("wer_comparison.png")
+out_path = Path(args.output)
 plt.savefig(out_path, facecolor=bg, bbox_inches="tight")
 print(f"Plot saved to {out_path}")

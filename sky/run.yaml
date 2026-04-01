@@ -9,14 +9,43 @@ file_mounts:
   ~/sky_workdir/.env: ../.env
 
 setup: |
+  source $HOME/.local/bin/env 2>/dev/null || true
+
+  # --- Python deps (uv) ---
   curl -LsSf https://astral.sh/uv/install.sh | sh
   source $HOME/.local/bin/env
   uv sync
   uv --project hush sync
   uv --project aic sync
 
+  # --- moshi-server (Kyutai STT) ---
+  # System deps
+  sudo apt-get install -y ffmpeg libopus-dev libssl-dev build-essential pkg-config
+
+  # Conda Python 3.11 (moshi-server links against libpython via PyO3)
+  if ! conda env list | grep -q "^moshi "; then
+    conda create -n moshi python=3.11 -y
+  fi
+
+  # Rust
+  curl https://sh.rustup.rs -sSf | sh -s -- -y
+  source "$HOME/.cargo/env"
+  rustup update
+
+  # Compile moshi-server with CUDA support (A10G = compute cap 86)
+  export PATH=/usr/local/cuda/bin:$PATH
+  export CUDA_COMPUTE_CAP=86
+  export PYO3_PYTHON=$(conda run -n moshi which python)
+  export OPENSSL_DIR=$(conda run -n moshi python -c "import sys; print(sys.prefix)")
+  unset LD_LIBRARY_PATH  # prevent conda OpenSSL from breaking cmake
+
+  cargo install --features cuda --locked moshi-server --force
+
 run: |
   source $HOME/.local/bin/env
+  source "$HOME/.cargo/env"
+  eval "$(conda shell.bash hook)"
+  conda activate moshi
 
   # --- Parameters ---
   WHISPER_MODEL="distil-medium.en"
@@ -24,6 +53,7 @@ run: |
   HUSH_ATTEN=100                                   # atten_lim_db
   AIC_MODEL="quail-vf-2.0-l-16khz"                 # AIC model ID
   AIC_EL=0.8                                       # enhancement level (0.0–1.0)
+  KYUTAI_CONCURRENCY=10                            # parallel streams to moshi-server
 
   # --- Derived output dirs (must match _output_dir() in each script) ---
   AIC_SLUG=$(echo "$AIC_MODEL" | tr '-' '_' | tr '.' '_')
@@ -31,17 +61,52 @@ run: |
   HUSH_DIR="hush_${HUSH_MODEL}_atten${HUSH_ATTEN}"
   AIC_DIR="aic_${AIC_SLUG}_el${AIC_EL_PCT}"
 
+  # --- Audio extraction & enhancement ---
   uv run python extract_mix_audio.py
   uv --project aic run python aic/enhance_dawn_chorus_with_aic.py \
     --model-id "$AIC_MODEL" --enhancement-level "$AIC_EL"
   uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py \
     --atten-lim-db "$HUSH_ATTEN"
 
+  # --- Whisper transcription (sequential, GPU-accelerated) ---
   uv run python generate_transcripts.py mix --model "$WHISPER_MODEL"
   uv run python generate_transcripts.py "$HUSH_DIR" --model "$WHISPER_MODEL"
   uv run python generate_transcripts.py "$AIC_DIR" --model "$WHISPER_MODEL"
 
+  # --- Kyutai transcription (parallel streaming) ---
+  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+  export OMP_NUM_THREADS=1
+  export MKL_NUM_THREADS=1
+  ulimit -n 65535
+  mkdir -p sky/static /tmp/moshi-logs
+
+  # Start moshi-server in background (from sky/ so static_dir resolves)
+  cd sky
+  moshi-server worker --config configs/config-stt-en-hf.toml &
+  KYUTAI_PID=$!
+  cd ..
+
+  echo "Waiting for Kyutai server to warm up..."
+  sleep 30
+
+  # Stream all three conditions in parallel
+  uv run python generate_transcripts_kyutai.py mix --concurrency "$KYUTAI_CONCURRENCY" &
+  uv run python generate_transcripts_kyutai.py "$HUSH_DIR" --concurrency "$KYUTAI_CONCURRENCY" &
+  uv run python generate_transcripts_kyutai.py "$AIC_DIR" --concurrency "$KYUTAI_CONCURRENCY" &
+  wait
+
+  kill $KYUTAI_PID || true
+
+  # --- WER evaluation ---
   uv run python evaluate_wer.py \
     --model "$WHISPER_MODEL" \
     --hush-dir "$HUSH_DIR" \
-    --aic-dir "$AIC_DIR"
+    --aic-dir "$AIC_DIR" \
+    --output wer_whisper.png
+
+  uv run python evaluate_wer.py \
+    --model "kyutai-stt-2.6b-en" \
+    --transcripts-subdir transcripts_kyutai \
+    --hush-dir "$HUSH_DIR" \
+    --aic-dir "$AIC_DIR" \
+    --output wer_kyutai.png

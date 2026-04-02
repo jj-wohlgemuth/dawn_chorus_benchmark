@@ -47,6 +47,13 @@ setup: |
   curl -fL "https://github.com/pulp-vision/Hush/raw/main/deployment/lib/libweya_nc.so" \
     -o hush/lib/libweya_nc.so
 
+  # --- Pre-download Kyutai model weights (setup is cached, avoids waiting in run:) ---
+  uv run python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('kyutai/stt-2.6b-en-candle')
+print('Kyutai model weights cached.')
+"
+
 run: |
   source $HOME/.local/bin/env
   source "$HOME/.cargo/env"

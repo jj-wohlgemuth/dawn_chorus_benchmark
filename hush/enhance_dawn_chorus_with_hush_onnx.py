@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import ctypes
 import io
+import multiprocessing as mp
+import os
 import platform
 import wave
 from pathlib import Path
 
-import os
-
 import numpy as np
-
 import sys
 
 # torchcodec (pulled in by datasets) prints FFmpeg load errors to both C-level
@@ -126,6 +125,40 @@ def _denoise(
     return out_i16
 
 
+# ---------------------------------------------------------------------------
+# Multiprocessing worker — lib and model are loaded once per worker process
+# ---------------------------------------------------------------------------
+
+_worker_lib: ctypes.CDLL | None = None
+_worker_model: int | None = None
+
+
+def _worker_init(lib_path: str, model_path: str) -> None:
+    global _worker_lib, _worker_model
+    _worker_lib = _setup_lib(Path(lib_path))
+    _worker_model = _worker_lib.weya_nc_model_load_from_path(model_path.encode())
+    if not _worker_model:
+        raise RuntimeError(f"Worker could not load model: {model_path}")
+
+
+def _worker_process_one(args: tuple) -> tuple[str, str]:
+    file_id, audio_bytes, output_dir_str, atten_lim_db = args
+    out_path = Path(output_dir_str) / file_id
+    if out_path.exists():
+        return file_id, "skipped"
+    audio_i16, sr = _load_wav_bytes(audio_bytes)
+    session = _worker_lib.weya_nc_session_create(
+        _worker_model, sr, ctypes.c_float(atten_lim_db)
+    )
+    if not session:
+        return file_id, f"error: could not create session for sr={sr}"
+    frame_len = int(_worker_lib.weya_nc_get_frame_length(session))
+    out_i16 = _denoise(_worker_lib, session, audio_i16, frame_len)
+    _worker_lib.weya_nc_session_free(session)
+    _write_wav(out_path, out_i16, sr)
+    return file_id, "done"
+
+
 def main(output_dir: Path = OUTPUT_DIR, atten_lim_db: float = ATTEN_LIM_DB) -> None:
     print(f"Loading dataset: {REPO_ID} ({SPLIT})...")
     dataset = load_dataset(REPO_ID, split=SPLIT)
@@ -134,57 +167,40 @@ def main(output_dir: Path = OUTPUT_DIR, atten_lim_db: float = ATTEN_LIM_DB) -> N
             dataset = dataset.cast_column(col, Audio(decode=False))
     print(f"Found {len(dataset)} examples.")
 
-    lib = _setup_lib(LIB_PATH)
-    model = lib.weya_nc_model_load_from_path(str(MODEL_PATH.resolve()).encode())
-    if not model:
-        raise RuntimeError(f"Could not load model: {MODEL_PATH}")
-
-    session = None
-    current_sr = None
-    frame_len = None
-
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Processing {len(dataset)} file(s)  →  {output_dir}")
 
+    # Collect work items (audio bytes loaded once in the main process)
+    tasks: list[tuple] = []
     for i, row in enumerate(dataset):
         mix_data = row.get("mix")
         if not mix_data or "bytes" not in mix_data:
-            print(f"  [{i}/{len(dataset)}] Skipping: no 'bytes' in 'mix' column")
+            print(f"  [{i}] Skipping: no 'bytes' in 'mix' column")
             continue
-
         file_id = row.get("id") or mix_data.get("path") or f"example_{i}"
         if not file_id.endswith(".wav"):
             file_id = f"{file_id}.wav"
+        tasks.append((file_id, mix_data["bytes"], str(output_dir), atten_lim_db))
 
-        audio_i16, sr = _load_wav_bytes(mix_data["bytes"])
+    n_workers = os.cpu_count() or 4
+    print(f"Processing {len(tasks)} file(s) with {n_workers} workers  →  {output_dir}")
 
-        if sr != current_sr:
-            if session is not None:
-                lib.weya_nc_session_free(session)
-            session = lib.weya_nc_session_create(
-                model, sr, ctypes.c_float(atten_lim_db)
-            )
-            if not session:
-                raise RuntimeError(f"Could not create session for sr={sr}")
-            frame_len = int(lib.weya_nc_get_frame_length(session))
-            current_sr = sr
-        else:
-            lib.weya_nc_reset(session)
+    done = skipped = errors = 0
+    with mp.Pool(
+        processes=n_workers,
+        initializer=_worker_init,
+        initargs=(str(LIB_PATH), str(MODEL_PATH.resolve())),
+    ) as pool:
+        for file_id, status in pool.imap_unordered(_worker_process_one, tasks):
+            if status == "done":
+                done += 1
+                print(f"  [{done + skipped}/{len(tasks)}] {file_id}")
+            elif status == "skipped":
+                skipped += 1
+            else:
+                errors += 1
+                print(f"  [ERROR] {file_id}: {status}")
 
-        assert session is not None and frame_len is not None
-        out_path = output_dir / file_id
-        if out_path.exists():
-            print(f"  [{i + 1}/{len(dataset)}] Skipping {file_id} (already exists)")
-            continue
-
-        out_i16 = _denoise(lib, session, audio_i16, frame_len)
-        _write_wav(out_path, out_i16, sr)
-        print(f"  [{i + 1}/{len(dataset)}] {file_id}")
-
-    if session is not None:
-        lib.weya_nc_session_free(session)
-    lib.weya_nc_model_free(model)
-    print("Done.")
+    print(f"Done. {done} processed, {skipped} skipped, {errors} errors.")
 
 
 def enhance_file(input_path: Path, output_path: Path, atten_lim_db: float = ATTEN_LIM_DB) -> None:

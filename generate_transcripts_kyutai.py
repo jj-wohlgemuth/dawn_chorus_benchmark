@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "kyutai"))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "kyutai"))
 from kyutai_api import KyutaiApi  # noqa: E402
 
 KYUTAI_URL = "ws://127.0.0.1:8080/api/asr-streaming"

@@ -22,10 +22,11 @@ setup: |
   # System deps
   sudo apt-get install -y ffmpeg libopus-dev libssl-dev build-essential pkg-config
 
-  # Conda Python 3.11 (moshi-server links against libpython via PyO3)
-  if ! conda env list | grep -q "^moshi "; then
-    conda create -n moshi python=3.11 -y
-  fi
+  # CUDA 12.2 compiler (driver 535 only supports PTX ISA up to 12.2; toolkit 12.4 generates incompatible PTX)
+  sudo apt-get install -y cuda-compiler-12-2
+
+  # uv-managed Python 3.11 (moshi-server links against libpython via PyO3)
+  uv python install 3.11
 
   # Rust
   curl https://sh.rustup.rs -sSf | sh -s -- -y
@@ -33,19 +34,27 @@ setup: |
   rustup update
 
   # Compile moshi-server with CUDA support (A10G = compute cap 86)
-  export PATH=/usr/local/cuda/bin:$PATH
+  # Use cuda-12.2 nvcc so the PTX ISA version is compatible with driver 535
+  export PATH=/usr/local/cuda-12.2/bin:$PATH
   export CUDA_COMPUTE_CAP=86
-  export PYO3_PYTHON=$(conda run -n moshi which python)
-  export OPENSSL_DIR=$(conda run -n moshi python -c "import sys; print(sys.prefix)")
-  unset LD_LIBRARY_PATH  # prevent conda OpenSSL from breaking cmake
+  export PYO3_PYTHON=$(uv python find 3.11)
+  unset LD_LIBRARY_PATH  # prevent stale LD_LIBRARY_PATH from interfering
 
   cargo install --features cuda --locked moshi-server --force
+
+  # --- Hush native library ---
+  mkdir -p hush/lib
+  curl -fL "https://github.com/pulp-vision/Hush/raw/main/deployment/lib/libweya_nc.so" \
+    -o hush/lib/libweya_nc.so
 
 run: |
   source $HOME/.local/bin/env
   source "$HOME/.cargo/env"
-  eval "$(conda shell.bash hook)"
-  conda activate moshi
+
+  # Set LD_LIBRARY_PATH to uv-managed Python 3.11's libpython (needed by moshi-server/PyO3)
+  MOSHI_PYTHON=$(uv python find 3.11)
+  MOSHI_LIBDIR=$($MOSHI_PYTHON -c "import sysconfig; print(sysconfig.get_config_var('LIBDIR'))")
+  export LD_LIBRARY_PATH=$MOSHI_LIBDIR:${LD_LIBRARY_PATH:-}
 
   # --- Parameters ---
   WHISPER_MODEL="distil-medium.en"
@@ -74,7 +83,7 @@ run: |
   uv run python generate_transcripts.py "$AIC_DIR" --model "$WHISPER_MODEL"
 
   # --- Kyutai transcription (parallel streaming) ---
-  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
+  # LD_LIBRARY_PATH already set above for moshi-server
   export OMP_NUM_THREADS=1
   export MKL_NUM_THREADS=1
   ulimit -n 65535
@@ -82,31 +91,24 @@ run: |
 
   # Start moshi-server in background (from sky/ so static_dir resolves)
   cd sky
-  moshi-server worker --config configs/config-stt-en-hf.toml &
+  moshi-server worker --config configs/config-stt-en-hf.toml > /tmp/moshi-server.log 2>&1 &
   KYUTAI_PID=$!
   cd ..
 
-  echo "Waiting for Kyutai server to warm up..."
-  sleep 30
+  # Wait until model is loaded and ASR loop is running (first run downloads ~5 GB from HF)
+  echo "Waiting for Kyutai server to be ready..."
+  until grep -q "starting asr loop" /tmp/moshi-server.log 2>/dev/null; do sleep 5; done
+  echo "Kyutai server ready."
 
-  # Stream all three conditions in parallel
-  uv run python generate_transcripts_kyutai.py mix --concurrency "$KYUTAI_CONCURRENCY" &
-  uv run python generate_transcripts_kyutai.py "$HUSH_DIR" --concurrency "$KYUTAI_CONCURRENCY" &
-  uv run python generate_transcripts_kyutai.py "$AIC_DIR" --concurrency "$KYUTAI_CONCURRENCY" &
-  wait
+  # Run conditions sequentially — batch_size=16, so all concurrency slots go to one job at a time
+  uv run python generate_transcripts_kyutai.py mix --concurrency "$KYUTAI_CONCURRENCY"
+  uv run python generate_transcripts_kyutai.py "$HUSH_DIR" --concurrency "$KYUTAI_CONCURRENCY"
+  uv run python generate_transcripts_kyutai.py "$AIC_DIR" --concurrency "$KYUTAI_CONCURRENCY"
 
   kill $KYUTAI_PID || true
 
-  # --- WER evaluation ---
+  # --- WER evaluation (combined Whisper + Kyutai plot) ---
   uv run python evaluate_wer.py \
-    --model "$WHISPER_MODEL" \
     --hush-dir "$HUSH_DIR" \
     --aic-dir "$AIC_DIR" \
-    --output wer_whisper.png
-
-  uv run python evaluate_wer.py \
-    --model "kyutai-stt-2.6b-en" \
-    --transcripts-subdir transcripts_kyutai \
-    --hush-dir "$HUSH_DIR" \
-    --aic-dir "$AIC_DIR" \
-    --output wer_kyutai.png
+    --output wer_comparison.png

@@ -4,37 +4,15 @@ from pathlib import Path
 import jiwer
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import numpy as np
 from datasets import Audio, load_dataset
 from matplotlib.ticker import FuncFormatter
 from whisper_normalizer.english import EnglishTextNormalizer
 
 parser = argparse.ArgumentParser()
-parser.add_argument(
-    "--model", default="tiny.en", help="Whisper model used for transcription"
-)
-parser.add_argument(
-    "--hush-dir",
-    type=Path,
-    default=None,
-    help="Hush output base dir (default: auto-detected by hush_* glob)",
-)
-parser.add_argument(
-    "--aic-dir",
-    type=Path,
-    default=None,
-    help="AIC output base dir (default: auto-detected by aic_* glob)",
-)
-parser.add_argument(
-    "--transcripts-subdir",
-    default="transcripts",
-    help="Subdirectory within each experiment dir containing transcript .txt files "
-    "(default: transcripts; use transcripts_kyutai for Kyutai output)",
-)
-parser.add_argument(
-    "--output",
-    default="wer_comparison.png",
-    help="Output PNG filename (default: wer_comparison.png)",
-)
+parser.add_argument("--hush-dir", type=Path, default=None)
+parser.add_argument("--aic-dir", type=Path, default=None)
+parser.add_argument("--output", default="wer_comparison.png")
 args = parser.parse_args()
 
 
@@ -46,189 +24,171 @@ def _find_dir(pattern: str, explicit: Path | None) -> Path | None:
 
 
 def _hush_label(d: Path) -> str:
-    """'advanced_dfnet16k_model_best_onnx · atten=100 dB' from dir name."""
-    name = d.name  # e.g. hush_advanced_dfnet16k_model_best_onnx_atten100
+    name = d.name
     if "_atten" in name:
         model_part, atten_part = name.split("_atten", 1)
-        model_part = model_part.removeprefix("hush_")
-        return f"Hush\n{model_part}\natten={atten_part} dB"
-    return f"Hush\n{name}"
+        return f"Hush (atten={atten_part} dB)"
+    return f"Hush ({name})"
 
 
 def _aic_label(d: Path) -> str:
-    """'quail-vf-2.0-l-16khz · EL=80%' from dir name."""
-    name = d.name  # e.g. aic_quail_vf_2_0_l_16khz_el80
+    name = d.name
     if "_el" in name:
         model_part, el_part = name.rsplit("_el", 1)
         model_part = model_part.removeprefix("aic_").replace("_", "-")
-        return f"AIC\n{model_part}\nEL={el_part}%"
-    return f"AIC\n{name}"
+        return f"AIC {model_part} EL={el_part}%"
+    return f"AIC ({name})"
 
 
 hush_dir = _find_dir("hush_*/", args.hush_dir)
 aic_dir = _find_dir("aic_*/", args.aic_dir)
 
-# --- Experiments: label -> base directory ---
-EXPERIMENTS: dict[str, Path] = {"Mix": Path("mix")}
-EXPERIMENT_COLORS: dict[str, str] = {"Mix": "#929292"}
-
+# Conditions: label -> base dir
+CONDITIONS: dict[str, Path] = {"Mix": Path("mix")}
+CONDITION_COLORS: dict[str, str] = {"Mix": "#888888"}
 if hush_dir:
     label = _hush_label(hush_dir)
-    EXPERIMENTS[label] = hush_dir
-    EXPERIMENT_COLORS[label] = "#4E9AF1"
-
+    CONDITIONS[label] = hush_dir
+    CONDITION_COLORS[label] = "#4E9AF1"
 if aic_dir:
     label = _aic_label(aic_dir)
-    EXPERIMENTS[label] = aic_dir
-    EXPERIMENT_COLORS[label] = "#2F6DF6"
+    CONDITIONS[label] = aic_dir
+    CONDITION_COLORS[label] = "#2F6DF6"
 
-# --- Brand Styling (matching plot_aesthetic) ---
-BRAND_COLORS = {"off_black": "#1A1A1A", "off_white": "#F2F2F0"}
-HATCH_PATTERNS = {"Deletion": "//", "Insertion": "", "Substitution": "\\\\"}
+# STT systems: label -> transcripts subdir
+STT_SYSTEMS = [
+    ("Whisper distil-medium.en", "transcripts"),
+    ("Kyutai STT-2.6B-EN", "transcripts_kyutai"),
+]
 
-# --- Load ground truth ---
+BRAND = {"bg": "#1A1A1A", "fg": "#F2F2F0"}
+HATCH = {"Deletion": "//", "Insertion": "", "Substitution": "\\\\"}
+
+# Load ground truth
 print("Loading dataset ground truth...")
 dataset = load_dataset("ai-coustics/dawn_chorus_en", split="eval")
 for col, feat in dataset.features.items():
     if isinstance(feat, Audio):
         dataset = dataset.cast_column(col, Audio(decode=False))
-
 normalizer = EnglishTextNormalizer()
 ground_truth = {row["id"]: normalizer(row["transcript"]) for row in dataset}
 print(f"Loaded {len(ground_truth)} ground truth entries.")
 
-# --- Compute WER per experiment ---
-results = {}
-for name, base_dir in EXPERIMENTS.items():
-    transcript_dir = base_dir / args.transcripts_subdir
-    refs, hyps = [], []
-    for txt_file in sorted(transcript_dir.glob("*.txt")):
-        file_id = txt_file.stem
-        ref = ground_truth.get(file_id)
-        if not ref:
+# Compute WER: results[condition][stt_label] = {Del, Ins, Sub, WER}
+results: dict[str, dict[str, dict]] = {}
+for cond_name, base_dir in CONDITIONS.items():
+    results[cond_name] = {}
+    for stt_label, subdir in STT_SYSTEMS:
+        transcript_dir = base_dir / subdir
+        refs, hyps = [], []
+        for txt_file in sorted(transcript_dir.glob("*.txt")):
+            ref = ground_truth.get(txt_file.stem)
+            if not ref:
+                continue
+            hyp = normalizer(txt_file.read_text().strip())
+            refs.append(ref)
+            hyps.append(hyp)
+        print(f"{cond_name} / {stt_label}: computing WER over {len(refs)} files...")
+        if not refs:
+            print(f"  [WARN] No transcripts found in {transcript_dir} — skipping.")
             continue
-        hyp = normalizer(txt_file.read_text().strip())
-        refs.append(ref)
-        hyps.append(hyp)
+        m = jiwer.process_words(refs, hyps)
+        n = m.hits + m.substitutions + m.deletions
+        results[cond_name][stt_label] = {
+            "Deletion":     m.deletions   / n * 100,
+            "Insertion":    m.insertions  / n * 100,
+            "Substitution": m.substitutions / n * 100,
+            "WER": (m.substitutions + m.deletions + m.insertions) / n * 100,
+        }
+        r = results[cond_name][stt_label]
+        print(f"  WER: {r['WER']:.1f}%  Del: {r['Deletion']:.1f}%  "
+              f"Ins: {r['Insertion']:.1f}%  Sub: {r['Substitution']:.1f}%")
 
-    print(f"{name}: computing WER over {len(refs)} files...")
-    if not refs:
-        print(f"  [WARN] No transcripts found in {transcript_dir} — skipping.")
-        continue
-    measures = jiwer.process_words(refs, hyps)
-    n = measures.hits + measures.substitutions + measures.deletions
-    results[name] = {
-        "Deletion": measures.deletions / n * 100,
-        "Insertion": measures.insertions / n * 100,
-        "Substitution": measures.substitutions / n * 100,
-        "WER": (measures.substitutions + measures.deletions + measures.insertions)
-        / n
-        * 100,
-    }
-    print(
-        f"  WER: {results[name]['WER']:.1f}%  "
-        f"Del: {results[name]['Deletion']:.1f}%  "
-        f"Ins: {results[name]['Insertion']:.1f}%  "
-        f"Sub: {results[name]['Substitution']:.1f}%"
-    )
+# --- Plot: grouped bars (condition groups, STT systems side by side) ---
+bg, fg = BRAND["bg"], BRAND["fg"]
+cond_names = [c for c in CONDITIONS if any(results[c].values())]
+stt_labels = [s for s, _ in STT_SYSTEMS]
+n_cond = len(cond_names)
+n_stt = len(stt_labels)
 
-# --- Plot ---
-bg = BRAND_COLORS["off_black"]
-fg = BRAND_COLORS["off_white"]
+bar_w = 0.35
+group_gap = 0.2
+group_w = n_stt * bar_w + group_gap
+x_centers = np.arange(n_cond) * group_w
 
-fig, ax = plt.subplots(figsize=(8, 7))
+# STT style: Whisper = solid, Kyutai = lighter (alpha overlay)
+STT_ALPHA = [1.0, 0.65]
+
+fig, ax = plt.subplots(figsize=(max(9, n_cond * 3.2), 7))
 fig.set_facecolor(bg)
 ax.set_facecolor(bg)
 
-bar_width = 0.5
-x_positions = list(range(len(results)))
-experiment_names = list(results.keys())
+for stt_idx, (stt_label, stt_alpha) in enumerate(zip(stt_labels, STT_ALPHA)):
+    offset = (stt_idx - (n_stt - 1) / 2) * bar_w
+    bottoms = np.zeros(n_cond)
+    for error_type in ("Deletion", "Insertion", "Substitution"):
+        vals = np.array([
+            results[c].get(stt_label, {}).get(error_type, 0.0)
+            for c in cond_names
+        ])
+        colors = [CONDITION_COLORS[c] for c in cond_names]
+        ax.bar(
+            x_centers + offset, vals, bottom=bottoms,
+            width=bar_w, color=colors, alpha=stt_alpha,
+            edgecolor=bg, hatch=HATCH[error_type], linewidth=0.6,
+        )
+        for i, (v, b) in enumerate(zip(vals, bottoms)):
+            if v > 1.5:
+                ax.text(x_centers[i] + offset, b + v / 2, f"{v:.1f}",
+                        ha="center", va="center", fontsize=9,
+                        color="white", zorder=5)
+        bottoms += vals
 
-bottoms = [0.0] * len(x_positions)
-for error_type in ("Deletion", "Insertion", "Substitution"):
-    vals = [results[name][error_type] for name in experiment_names]
-    colors = [EXPERIMENT_COLORS[name] for name in experiment_names]
-    ax.bar(
-        x_positions,
-        vals,
-        bottom=bottoms,
-        width=bar_width,
-        color=colors,
-        edgecolor=bg,
-        hatch=HATCH_PATTERNS[error_type],
-        linewidth=0.6,
-    )
-    # In-bar labels
-    for i, (x, v, b) in enumerate(zip(x_positions, vals, bottoms)):
-        if v > 1.0:
-            ax.text(
-                x,
-                b + v / 2,
-                f"{v:.1f}",
-                ha="center",
-                va="center",
-                fontsize=11,
-                color="white",
-                zorder=5,
-            )
-    bottoms = [b + v for b, v in zip(bottoms, vals)]
+    # Total WER labels above each bar
+    for i, c in enumerate(cond_names):
+        wer = results[c].get(stt_label, {}).get("WER", 0.0)
+        if wer:
+            ax.text(x_centers[i] + offset, wer + 0.4, f"{wer:.1f}",
+                    ha="center", va="bottom", fontsize=11,
+                    color=fg, fontweight="bold", zorder=6)
 
-# Total WER labels above bars
-for i, (x, name) in enumerate(zip(x_positions, experiment_names)):
-    total = results[name]["WER"]
-    ax.text(
-        x,
-        total + 0.3,
-        f"{total:.1f}",
-        ha="center",
-        va="bottom",
-        fontsize=13,
-        color=fg,
-        fontweight="bold",
-        zorder=6,
-    )
+# X-axis labels: condition name
+ax.set_xticks(x_centers)
+ax.set_xticklabels(cond_names, fontsize=12, color=fg, fontweight="bold")
 
 # Styling
 for spine in ax.spines.values():
     spine.set_visible(False)
-ax.yaxis.set_major_formatter(FuncFormatter(lambda val, _: f"{val:.0f}%"))
-ax.set_ylabel("Corpus-level Word Error Rate (%)", fontsize=14, color=fg, labelpad=12)
+ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}%"))
+ax.set_ylabel("Corpus-level Word Error Rate (%)", fontsize=13, color=fg, labelpad=12)
 ax.tick_params(colors=fg)
-ax.tick_params(axis="x", length=0, pad=12)
-ax.set_xticks(x_positions)
-ax.set_xticklabels(experiment_names, fontsize=11, color=fg, fontweight="bold")
-plt.yticks(color=fg, fontsize=13)
+ax.tick_params(axis="x", length=0, pad=10)
+plt.yticks(color=fg, fontsize=12)
 ax.grid(axis="y", linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
 ax.axhline(y=0, linestyle="dotted", alpha=0.5, color=fg, linewidth=1.2)
-ax.set_title(
-    f"Dawn Chorus — WER by Enhancement ({args.model}, {args.transcripts_subdir})",
-    fontsize=20,
-    color=fg,
-    pad=16,
-)
+ax.set_title("Dawn Chorus — WER by Condition & STT System",
+             fontsize=18, color=fg, pad=16)
 
-# Legend
-legend_handles = [
-    mpatches.Patch(
-        facecolor="#555555", edgecolor=fg, hatch=HATCH_PATTERNS[t], label=f"{t}s"
-    )
+# Legend: error types + STT systems
+error_handles = [
+    mpatches.Patch(facecolor="#555", edgecolor=fg, hatch=HATCH[t], label=f"{t}s")
     for t in ("Deletion", "Insertion", "Substitution")
 ]
+stt_handles = [
+    mpatches.Patch(facecolor="#888888", alpha=a, edgecolor=fg, label=s)
+    for s, a in zip(stt_labels, STT_ALPHA)
+]
 leg = ax.legend(
-    handles=legend_handles,
-    loc="upper center",
-    bbox_to_anchor=(0.5, -0.10),
-    ncol=3,
-    fontsize=12,
-    facecolor=bg,
-    edgecolor="none",
-    framealpha=1,
+    handles=error_handles + stt_handles,
+    loc="upper center", bbox_to_anchor=(0.5, -0.10),
+    ncol=len(error_handles) + len(stt_handles),
+    fontsize=11, facecolor=bg, edgecolor="none", framealpha=1,
 )
 for text in leg.get_texts():
     text.set_color(fg)
 
 plt.tight_layout()
-plt.subplots_adjust(bottom=0.14)
+plt.subplots_adjust(bottom=0.16)
 out_path = Path(args.output)
 plt.savefig(out_path, facecolor=bg, bbox_inches="tight")
 print(f"Plot saved to {out_path}")

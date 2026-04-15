@@ -183,3 +183,5 @@ cython_debug/
 /.vscode
 .DS_Store
 *.aicmodel
+models/model_best.ckpt
+hush/assets/audio/unit_test_enhanced.wav

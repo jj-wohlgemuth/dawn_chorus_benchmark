@@ -7,7 +7,10 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "datasets>=4.8.4",
     "torch>=2.11.0",
+    "torchaudio>=2.6.0",
     "soundfile>=0.13.1",
+    "DeepFilterLib>=0.5.6",
+    "deepfilternet-se @ git+https://github.com/pulp-vision/Hush.git",
 ]
 
 [dependency-groups]

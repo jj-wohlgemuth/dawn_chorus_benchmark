@@ -11,16 +11,25 @@ file_mounts:
 setup: |
   curl -LsSf https://astral.sh/uv/install.sh | sh
   source $HOME/.local/bin/env
+
+  # Rust is required to build DeepFilterLib from source (no Python 3.12 wheel on PyPI)
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  source $HOME/.cargo/env
+
   uv sync
   uv --project hush sync
   uv --project aic sync
+
+  # Download Hush PyTorch checkpoint (not tracked in git due to size)
+  curl -fsSL -o models/model_best.ckpt \
+    https://github.com/pulp-vision/Hush/raw/main/deployment/models/model_best.ckpt
 
 run: |
   source $HOME/.local/bin/env
 
   # --- Parameters ---
   WHISPER_MODEL="distil-medium.en"
-  HUSH_MODEL="advanced_dfnet16k_model_best_onnx"   # ONNX model stem
+  HUSH_MODEL="model_best"                          # PyTorch checkpoint stem
   HUSH_ATTEN=100                                   # atten_lim_db
   AIC_MODEL="quail-vf-2.0-l-16khz"                 # AIC model ID
   AIC_EL=0.8                                       # enhancement level (0.0–1.0)
@@ -34,7 +43,7 @@ run: |
   uv run python extract_mix_audio.py
   uv --project aic run python aic/enhance_dawn_chorus_with_aic.py \
     --model-id "$AIC_MODEL" --enhancement-level "$AIC_EL"
-  uv --project hush run python hush/enhance_dawn_chorus_with_hush_onnx.py \
+  uv --project hush run python hush/enhance_dawn_chorus_with_hush.py \
     --atten-lim-db "$HUSH_ATTEN"
 
   uv run python generate_transcripts.py mix --model "$WHISPER_MODEL"

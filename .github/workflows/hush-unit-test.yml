@@ -1,0 +1,44 @@
+name: Hush unit test
+
+on:
+  push:
+    branches: [main]
+    paths: ['hush/**', 'models/**', '.github/workflows/hush-unit-test.yml']
+  pull_request:
+    paths: ['hush/**', 'models/**', '.github/workflows/hush-unit-test.yml']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('hush/uv.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: hush/uv.lock
+
+      - name: Install hush dependencies
+        run: uv --project hush sync
+
+      - name: Download Hush model checkpoint
+        run: |
+          curl -fsSL -o models/model_best.ckpt \
+            https://github.com/pulp-vision/Hush/raw/main/deployment/models/model_best.ckpt
+
+      - name: Run unit test
+        run: uv --project hush run pytest hush/tests/test_enhancement.py -v
